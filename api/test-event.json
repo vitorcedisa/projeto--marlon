@@ -1,0 +1,4 @@
+# Arquivo de exemplo para testar a função addOrder localmente
+{
+  "body": "{\"cliente\": \"João Silva\", \"medicamentos\": [\"Paracetamol\", \"Dipirona\"], \"total\": 25.50}"
+}

@@ -1,0 +1,100 @@
+service: pharmacy-delivery-app
+
+provider:
+  name: aws
+  runtime: python3.9
+  stage: ${opt:stage, 'dev'}
+  region: us-east-1
+  environment:
+    ORDER_TABLE: pharmacy-orders-${opt:stage, self:provider.stage}
+    SNS_TOPIC_ARN: !Ref PharmacyNotificationsTopic
+  
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:DescribeTable
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:GetItem
+        - dynamodb:PutItem
+        - dynamodb:UpdateItem
+        - dynamodb:DeleteItem
+        - dynamodb:GetRecords
+        - dynamodb:GetShardIterator
+        - dynamodb:DescribeStream
+        - dynamodb:ListStreams
+      Resource: "arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.ORDER_TABLE}"
+    - Effect: Allow
+      Action:
+        - sns:Publish
+      Resource: !Ref PharmacyNotificationsTopic
+
+functions:
+  addOrder:
+    description: Adiciona um novo pedido de farmácia
+    handler: handlers/add_order.lambda_handler
+    events:
+      - http:
+          path: order/add
+          method: post
+          cors: true
+
+  setAsDelivered:
+    description: Marca um pedido como entregue
+    handler: handlers/delivered.lambda_handler
+    events:
+      - http:
+          path: delivery/order/{id}/delivered
+          method: get
+          cors: true
+
+  setAsReceived:
+    description: Marca um pedido como recebido pelo cliente
+    handler: handlers/received.lambda_handler
+    events:
+      - http:
+          path: client/order/{id}/received
+          method: get
+          cors: true
+
+  notifyOwner:
+    description: Notifica o dono da farmácia sobre mudanças nos pedidos
+    handler: handlers/notify_owner.lambda_handler
+    events:
+      - stream:
+          type: dynamodb
+          arn: !GetAtt OrderTable.StreamArn
+          batchSize: 1
+
+resources:
+  Resources:
+    OrderTable:
+      Type: 'AWS::DynamoDB::Table'
+      DeletionPolicy: Retain
+      Properties:
+        TableName: ${self:provider.environment.ORDER_TABLE}
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+
+    PharmacyNotificationsTopic:
+      Type: 'AWS::SNS::Topic'
+      Properties:
+        TopicName: pharmacy-notifications-${opt:stage, self:provider.stage}
+        DisplayName: Pharmacy Delivery Notifications
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    slim: true
